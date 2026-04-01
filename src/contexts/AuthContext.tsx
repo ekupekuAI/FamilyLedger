@@ -2,11 +2,16 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import type { User, Session } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 
+export interface SignUpResult {
+  /** True when Supabase requires email confirmation — no session yet, do not call authenticated APIs */
+  needsEmailConfirmation: boolean;
+}
+
 interface AuthContextType {
   user: User | null;
   session: Session | null;
   loading: boolean;
-  signUp: (email: string, password: string, name: string) => Promise<void>;
+  signUp: (email: string, password: string, name: string) => Promise<SignUpResult>;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
@@ -35,25 +40,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  const signUp = async (email: string, password: string, name: string) => {
+  const signUp = async (
+    email: string,
+    password: string,
+    name: string
+  ): Promise<SignUpResult> => {
+    const redirectTo =
+      typeof window !== 'undefined' ? `${window.location.origin}/` : undefined;
+
     const { error, data } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        data: {
-          name,
-        },
+        data: { name },
+        emailRedirectTo: redirectTo,
       },
     });
     if (error) throw error;
-    if (data.user) {
-      await supabase.from('profiles').upsert(
-        { id: data.user.id, display_name: name },
-        { onConflict: 'id' }
-      );
-      setUser(data.user);
+
+    // Profile row is created by DB trigger (handle_new_user). Never call REST without a JWT —
+    // when email confirmation is on, data.session is null and upsert returns 401.
+
+    if (data.session) {
       setSession(data.session);
+      setUser(data.user ?? null);
+      return { needsEmailConfirmation: false };
     }
+
+    setSession(null);
+    setUser(null);
+    return { needsEmailConfirmation: true };
   };
 
   const signIn = async (email: string, password: string) => {

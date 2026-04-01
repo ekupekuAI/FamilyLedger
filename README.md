@@ -1,73 +1,41 @@
-# React + TypeScript + Vite
+# FamilyLedger
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Family expense tracking with **Supabase** (auth, Postgres, RLS, realtime) and **React + Vite**.
 
-Currently, two official plugins are available:
+## Deploy on Vercel
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+1. **Import** this repo in Vercel (Framework Preset: **Vite**).
 
-## React Compiler
+2. **Root directory** if the app lives in a subfolder: set it to the folder that contains `package.json` (e.g. `FamilyLedger-main`).
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+3. **Environment variables** (Project → Settings → Environment Variables), for **Production**, **Preview**, and **Development**:
 
-## Expanding the ESLint configuration
+   | Name | Value |
+   |------|--------|
+   | `VITE_SUPABASE_URL` | Your Supabase project URL |
+   | `VITE_SUPABASE_ANON_KEY` | Project **anon** `public` key (Settings → API) |
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+4. **Redeploy** after adding variables (Deployments → … → Redeploy).
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+5. **Supabase** (Authentication → URL configuration):
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+   - **Site URL** = your Vercel URL (e.g. `https://your-app.vercel.app`).
+   - **Redirect URLs** = same URL plus `http://localhost:5173` for local dev.
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+6. Run the SQL in `supabase/migrations/` on your Supabase project (SQL Editor) if you have not already.
+
+`vercel.json` rewrites all routes to `index.html` so client-side routes (`/auth`, `/setup`, `/dashboard`, …) work after refresh.
+
+## Local development
+
+```bash
+npm install
+cp .env.example .env
+# Edit .env with your Supabase URL and anon key
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm run build
+npm run preview
 ```

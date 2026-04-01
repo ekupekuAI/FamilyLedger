@@ -26,11 +26,13 @@ export default function AuthPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setInfo('');
     setLoading(true);
 
     try {
@@ -40,7 +42,13 @@ export default function AuthPage() {
           setLoading(false);
           return;
         }
-        await signUp(email, password, name);
+        const result = await signUp(email, password, name);
+        if (result.needsEmailConfirmation) {
+          setInfo(
+            'Check your email to confirm your account. After confirming, sign in here — then you can create or join a family.'
+          );
+          return;
+        }
         navigate('/setup');
       } else {
         if (!email || !password) {
@@ -88,6 +96,11 @@ export default function AuthPage() {
           {error && (
             <Alert severity="error" sx={{ mb: 2 }}>
               {error}
+            </Alert>
+          )}
+          {info && (
+            <Alert severity="success" sx={{ mb: 2 }}>
+              {info}
             </Alert>
           )}
 
