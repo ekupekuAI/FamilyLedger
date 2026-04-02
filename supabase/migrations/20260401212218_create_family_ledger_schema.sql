@@ -104,16 +104,64 @@ ALTER TABLE family_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 
--- profiles (after family_members exists)
+-- RLS helpers (SECURITY DEFINER avoids infinite recursion when policies subquery family_members)
+CREATE OR REPLACE FUNCTION public.fl_user_family_ids()
+RETURNS SETOF uuid
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT fm.family_id FROM public.family_members fm WHERE fm.user_id = auth.uid();
+$$;
+
+CREATE OR REPLACE FUNCTION public.fl_coworker_user_ids()
+RETURNS SETOF uuid
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT fm.user_id
+  FROM public.family_members fm
+  WHERE fm.family_id IN (
+    SELECT x.family_id FROM public.family_members x WHERE x.user_id = auth.uid()
+  );
+$$;
+
+REVOKE ALL ON FUNCTION public.fl_user_family_ids() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fl_coworker_user_ids() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fl_user_family_ids() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.fl_coworker_user_ids() TO authenticated;
+
+-- Join flow: user is not a member yet, so cannot read families via RLS — lookup by code only (SECURITY DEFINER)
+CREATE OR REPLACE FUNCTION public.lookup_family_by_code(p_code text)
+RETURNS TABLE (
+  id uuid,
+  name text,
+  family_code text,
+  created_by uuid,
+  created_at timestamptz
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT f.id, f.name, f.family_code, f.created_by, f.created_at
+  FROM public.families f
+  WHERE upper(trim(f.family_code)) = upper(trim(p_code))
+  LIMIT 1;
+$$;
+
+REVOKE ALL ON FUNCTION public.lookup_family_by_code(text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.lookup_family_by_code(text) TO authenticated;
+
 CREATE POLICY "profiles_select_family"
   ON profiles FOR SELECT TO authenticated
   USING (
     id = auth.uid()
-    OR EXISTS (
-      SELECT 1 FROM family_members fm1
-      INNER JOIN family_members fm2 ON fm1.family_id = fm2.family_id
-      WHERE fm1.user_id = auth.uid() AND fm2.user_id = profiles.id
-    )
+    OR id IN (SELECT public.fl_coworker_user_ids())
   );
 
 CREATE POLICY "profiles_insert_own"
@@ -129,7 +177,8 @@ CREATE POLICY "profiles_update_own"
 CREATE POLICY "families_select_member"
   ON families FOR SELECT TO authenticated
   USING (
-    id IN (SELECT family_id FROM family_members WHERE user_id = auth.uid())
+    created_by = auth.uid()
+    OR id IN (SELECT public.fl_user_family_ids())
   );
 
 CREATE POLICY "families_insert"
@@ -148,9 +197,7 @@ CREATE POLICY "families_delete_creator"
 -- family_members
 CREATE POLICY "family_members_select"
   ON family_members FOR SELECT TO authenticated
-  USING (
-    family_id IN (SELECT family_id FROM family_members WHERE user_id = auth.uid())
-  );
+  USING (family_id IN (SELECT public.fl_user_family_ids()));
 
 CREATE POLICY "family_members_insert_self"
   ON family_members FOR INSERT TO authenticated
@@ -171,30 +218,20 @@ CREATE POLICY "family_members_delete"
 -- transactions
 CREATE POLICY "transactions_select"
   ON transactions FOR SELECT TO authenticated
-  USING (
-    family_id IN (SELECT family_id FROM family_members WHERE user_id = auth.uid())
-  );
+  USING (family_id IN (SELECT public.fl_user_family_ids()));
 
 CREATE POLICY "transactions_insert"
   ON transactions FOR INSERT TO authenticated
-  WITH CHECK (
-    family_id IN (SELECT family_id FROM family_members WHERE user_id = auth.uid())
-  );
+  WITH CHECK (family_id IN (SELECT public.fl_user_family_ids()));
 
 CREATE POLICY "transactions_update"
   ON transactions FOR UPDATE TO authenticated
-  USING (
-    family_id IN (SELECT family_id FROM family_members WHERE user_id = auth.uid())
-  )
-  WITH CHECK (
-    family_id IN (SELECT family_id FROM family_members WHERE user_id = auth.uid())
-  );
+  USING (family_id IN (SELECT public.fl_user_family_ids()))
+  WITH CHECK (family_id IN (SELECT public.fl_user_family_ids()));
 
 CREATE POLICY "transactions_delete"
   ON transactions FOR DELETE TO authenticated
-  USING (
-    family_id IN (SELECT family_id FROM family_members WHERE user_id = auth.uid())
-  );
+  USING (family_id IN (SELECT public.fl_user_family_ids()));
 
 -- notifications
 CREATE POLICY "notifications_select_own"
@@ -204,11 +241,8 @@ CREATE POLICY "notifications_select_own"
 CREATE POLICY "notifications_insert_family"
   ON notifications FOR INSERT TO authenticated
   WITH CHECK (
-    family_id IN (SELECT family_id FROM family_members WHERE user_id = auth.uid())
-    AND EXISTS (
-      SELECT 1 FROM family_members fm
-      WHERE fm.family_id = family_id AND fm.user_id = user_id
-    )
+    family_id IN (SELECT public.fl_user_family_ids())
+    AND user_id IN (SELECT public.fl_coworker_user_ids())
   );
 
 CREATE POLICY "notifications_update_own"

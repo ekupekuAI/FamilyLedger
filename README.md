@@ -22,7 +22,9 @@ Family expense tracking with **Supabase** (auth, Postgres, RLS, realtime) and **
    - **Site URL** = your Vercel URL (e.g. `https://your-app.vercel.app`).
    - **Redirect URLs** = same URL plus `http://localhost:5173` for local dev.
 
-6. Run the SQL in `supabase/migrations/` on your Supabase project (SQL Editor) if you have not already.
+6. Run the SQL in `supabase/migrations/` on your Supabase project (SQL Editor) if you have not already — **in order** (oldest first).
+
+   If you already applied the first migration and see **`42P17` infinite recursion on `family_members`**, run only the patch file `20260403200000_fix_rls_recursion_family_members.sql` (adds `fl_user_family_ids`, `fl_coworker_user_ids`, `lookup_family_by_code`, and replaces affected RLS policies).
 
 `vercel.json` rewrites all routes to `index.html` so client-side routes (`/auth`, `/setup`, `/dashboard`, …) work after refresh.
 

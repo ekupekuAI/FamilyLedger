@@ -284,13 +284,13 @@ export function FamilyProvider({ children }: { children: React.ReactNode }) {
   const joinFamily = async (familyCode: string, name: string, role: string) => {
     if (!user) throw new Error('User not authenticated');
 
-    const { data: familyData, error: familyError } = await supabase
-      .from('families')
-      .select('*')
-      .eq('family_code', familyCode.trim().toUpperCase())
-      .maybeSingle();
+    const { data: familyRows, error: familyError } = await supabase.rpc(
+      'lookup_family_by_code',
+      { p_code: familyCode.trim() }
+    );
 
     if (familyError) throw familyError;
+    const familyData = Array.isArray(familyRows) ? familyRows[0] : familyRows;
     if (!familyData) throw new Error('Family not found');
 
     await supabase.from('profiles').upsert(
