@@ -22,6 +22,7 @@ import {
 import { useFamily } from '../contexts/FamilyContext';
 import { useAuth } from '../contexts/AuthContext';
 import { format } from 'date-fns';
+import { formatINR } from '../lib/money';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
@@ -46,14 +47,14 @@ export default function DashboardPage() {
     const toMember = members.find((m) => m.user_id === transaction.to_user_id);
 
     if (transaction.type === 'money_sent') {
-      return `${fromMember?.name ?? 'Someone'} sent ₹${transaction.amount} to ${toMember?.name ?? 'someone'}`;
+      return `${fromMember?.name ?? 'Someone'} sent ${formatINR(transaction.amount)} to ${toMember?.name ?? 'someone'}`;
     }
     if (transaction.type === 'expense') {
       const spender = members.find((m) => m.user_id === transaction.from_user_id);
-      return `${spender?.name ?? 'Someone'} spent ₹${transaction.amount} on ${transaction.category ?? 'expense'}`;
+      return `${spender?.name ?? 'Someone'} spent ${formatINR(transaction.amount)} on ${transaction.category ?? 'expense'}`;
     }
     if (transaction.type === 'settlement') {
-      return `${fromMember?.name ?? 'Someone'} settled ₹${transaction.amount} with ${toMember?.name ?? 'someone'}`;
+      return `${fromMember?.name ?? 'Someone'} settled ${formatINR(transaction.amount)} with ${toMember?.name ?? 'someone'}`;
     }
     return '';
   };
@@ -101,7 +102,7 @@ export default function DashboardPage() {
                 Total Family Pool
               </Typography>
               <Typography variant="h3" sx={{ fontWeight: 700 }}>
-                ₹{totalPool.toFixed(2)}
+                {formatINR(totalPool)}
               </Typography>
             </Box>
           </Box>
@@ -159,7 +160,7 @@ export default function DashboardPage() {
                       fontWeight: 700,
                     }}
                   >
-                    ₹{balance.toFixed(2)}
+                    {formatINR(balance)}
                   </Typography>
                 </CardContent>
               </Card>

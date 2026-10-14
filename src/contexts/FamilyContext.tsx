@@ -317,7 +317,7 @@ export function FamilyProvider({ children }: { children: React.ReactNode }) {
       p_role: safeRole,
       p_display_name: name.trim(),
     });
-    if (joinError?.code === 'P0002') throw new Error('Family not found');
+    if (joinError?.code === 'PT404') throw new Error('Family not found');
     if (joinError?.code === '23505') throw new Error('You already belong to a family');
     if (joinError && joinError.code !== 'PGRST202') throw joinError;
 

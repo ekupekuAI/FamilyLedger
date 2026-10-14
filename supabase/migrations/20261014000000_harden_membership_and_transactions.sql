@@ -45,7 +45,8 @@ BEGIN
   LIMIT 1;
 
   IF v_family IS NULL THEN
-    RAISE EXCEPTION 'Family not found' USING ERRCODE = 'P0002';
+    -- PT404 makes PostgREST answer 404 instead of 500.
+    RAISE EXCEPTION 'Family not found' USING ERRCODE = 'PT404';
   END IF;
 
   IF EXISTS (SELECT 1 FROM public.family_members fm WHERE fm.user_id = v_uid) THEN
