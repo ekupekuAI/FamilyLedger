@@ -24,6 +24,7 @@ import {
 } from '@mui/icons-material';
 import { useFamily } from '../contexts/FamilyContext';
 import { format } from 'date-fns';
+import { parseLocalDate, toPaise } from '../lib/money';
 
 const CATEGORY_ICONS: Record<string, React.ReactElement> = {
   Food: <Restaurant />,
@@ -41,7 +42,7 @@ export default function ExpensesPage() {
   const [memberFilter, setMemberFilter] = useState('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
 
-  const expenses = transactions.filter((t) => t.type === 'expense');
+  const expenses = useMemo(() => transactions.filter((t) => t.type === 'expense'), [transactions]);
 
   const filteredExpenses = useMemo(() => {
     return expenses.filter((expense) => {
@@ -53,7 +54,7 @@ export default function ExpensesPage() {
     });
   }, [expenses, memberFilter, categoryFilter, members]);
 
-  const totalExpense = filteredExpenses.reduce((sum, exp) => sum + Number(exp.amount), 0);
+  const totalExpense = filteredExpenses.reduce((sum, exp) => sum + toPaise(exp.amount), 0) / 100;
 
   const categories = Array.from(
     new Set(expenses.map((e) => e.category).filter((c): c is string => c !== null))
@@ -157,7 +158,7 @@ export default function ExpensesPage() {
                         <Chip label={member?.name} size="small" />
                         <Chip label={expense.category} size="small" variant="outlined" />
                         <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 2 }}>
-                          {format(new Date(expense.date), 'MMM d, yyyy')}
+                          {format(parseLocalDate(expense.date), 'MMM d, yyyy')}
                         </Typography>
                       </Box>
                     </Box>

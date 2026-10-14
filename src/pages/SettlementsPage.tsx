@@ -20,6 +20,7 @@ import {
 import { ArrowBack } from '@mui/icons-material';
 import { useFamily } from '../contexts/FamilyContext';
 import { format } from 'date-fns';
+import { toPaise } from '../lib/money';
 
 interface Settlement {
   from: string;
@@ -31,17 +32,23 @@ export default function SettlementsPage() {
   const navigate = useNavigate();
   const { members, getBalanceForMember, settleUp, transactions } = useFamily();
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
+  // Balance = received − sent − expenses. A member with a positive balance holds family
+  // money; a negative one has paid out of pocket. A settlement is recorded as a transfer
+  // from → to, so it must go from the holder to the out-of-pocket member to move both
+  // toward zero. (It used to go the other way, so every "Settle" doubled the gap.)
+  // Matching is done in integer paise so amounts always reach exactly zero.
   const settlements: Settlement[] = useMemo(() => {
-    const creditors: { id: string; name: string; amount: number }[] = [];
-    const debtors: { id: string; name: string; amount: number }[] = [];
+    const holders: { id: string; amount: number }[] = [];
+    const outOfPocket: { id: string; amount: number }[] = [];
 
     members.forEach((member) => {
-      const balance = getBalanceForMember(member.id);
+      const balance = toPaise(getBalanceForMember(member.id));
       if (balance > 0) {
-        creditors.push({ id: member.id, name: member.name, amount: balance });
+        holders.push({ id: member.id, amount: balance });
       } else if (balance < 0) {
-        debtors.push({ id: member.id, name: member.name, amount: Math.abs(balance) });
+        outOfPocket.push({ id: member.id, amount: -balance });
       }
     });
 
@@ -50,34 +57,36 @@ export default function SettlementsPage() {
     let i = 0;
     let j = 0;
 
-    while (i < debtors.length && j < creditors.length) {
-      const debtor = debtors[i];
-      const creditor = creditors[j];
+    while (i < holders.length && j < outOfPocket.length) {
+      const holder = holders[i];
+      const payee = outOfPocket[j];
 
-      const settleAmount = Math.min(debtor.amount, creditor.amount);
+      const settleAmount = Math.min(holder.amount, payee.amount);
 
       result.push({
-        from: debtor.id,
-        to: creditor.id,
-        amount: settleAmount,
+        from: holder.id,
+        to: payee.id,
+        amount: settleAmount / 100,
       });
 
-      debtor.amount -= settleAmount;
-      creditor.amount -= settleAmount;
+      holder.amount -= settleAmount;
+      payee.amount -= settleAmount;
 
-      if (debtor.amount === 0) i++;
-      if (creditor.amount === 0) j++;
+      if (holder.amount === 0) i++;
+      if (payee.amount === 0) j++;
     }
 
     return result;
-  }, [members, getBalanceForMember, transactions]);
+  }, [members, getBalanceForMember]);
 
   const handleSettle = async (settlement: Settlement) => {
     setLoading(true);
+    setError('');
     try {
       await settleUp(settlement.from, settlement.to, settlement.amount);
-    } catch (error) {
-      console.error('Error settling:', error);
+    } catch (err) {
+      console.error('Error settling:', err);
+      setError(err instanceof Error ? err.message : 'Could not record the settlement');
     } finally {
       setLoading(false);
     }
@@ -102,6 +111,16 @@ export default function SettlementsPage() {
         <Typography variant="h5" gutterBottom>
           Calculated Settlements
         </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Suggested payments that bring balances back toward zero. Tap Settle once the money has
+          been handed over.
+        </Typography>
+
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {error}
+          </Alert>
+        )}
 
         {settlements.length === 0 ? (
           <Alert severity="success" sx={{ mb: 4 }}>
@@ -129,7 +148,7 @@ export default function SettlementsPage() {
                 >
                   <Box sx={{ flexGrow: 1 }}>
                     <Typography variant="h6">
-                      {fromMember?.name} owes {toMember?.name}
+                      {fromMember?.name} pays {toMember?.name}
                     </Typography>
                     <Typography variant="h4" color="error.main" fontWeight={700}>
                       ₹{settlement.amount.toFixed(2)}

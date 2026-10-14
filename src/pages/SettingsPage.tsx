@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import {
   Container,
   Box,
@@ -28,22 +28,29 @@ export default function SettingsPage() {
   const { family, members, leaveFamily } = useFamily();
   const [copySuccess, setCopySuccess] = useState(false);
   const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
+  const [leaveError, setLeaveError] = useState('');
 
-  if (!family) {
-    navigate('/setup');
-    return null;
-  }
+  if (!family) return <Navigate to="/setup" replace />;
 
-  const handleCopyCode = () => {
-    navigator.clipboard.writeText(family.family_code);
-    setCopySuccess(true);
-    setTimeout(() => setCopySuccess(false), 2000);
+  const handleCopyCode = async () => {
+    try {
+      await navigator.clipboard.writeText(family.family_code);
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 2000);
+    } catch {
+      // Clipboard can be blocked (http, permissions); the code stays visible to copy by hand.
+    }
   };
 
   const handleLeaveFamily = async () => {
-    await leaveFamily();
-    setLeaveDialogOpen(false);
-    navigate('/setup');
+    setLeaveError('');
+    try {
+      await leaveFamily();
+      setLeaveDialogOpen(false);
+      navigate('/setup');
+    } catch (err) {
+      setLeaveError(err instanceof Error ? err.message : 'Could not leave the family');
+    }
   };
 
   return (
@@ -150,6 +157,11 @@ export default function SettingsPage() {
       <Dialog open={leaveDialogOpen} onClose={() => setLeaveDialogOpen(false)}>
         <DialogTitle>Leave Family?</DialogTitle>
         <DialogContent>
+          {leaveError && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {leaveError}
+            </Alert>
+          )}
           <Typography>
             Are you sure you want to leave this family? You will lose access to all family data.
           </Typography>

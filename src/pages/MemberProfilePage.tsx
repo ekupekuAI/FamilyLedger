@@ -1,5 +1,4 @@
-import { useMemo } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import {
   Container,
   Box,
@@ -27,6 +26,7 @@ import {
 } from 'recharts';
 import { useFamily } from '../contexts/FamilyContext';
 import { format } from 'date-fns';
+import { toPaise } from '../lib/money';
 
 const COLORS = ['#16a34a', '#0ea5e9', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#6b7280'];
 
@@ -49,10 +49,7 @@ export default function MemberProfilePage() {
 
   const member = members.find((m) => m.id === memberId);
 
-  if (!member) {
-    navigate('/dashboard');
-    return null;
-  }
+  if (!member) return <Navigate to="/dashboard" replace />;
 
   const balance = getBalanceForMember(member.id);
 
@@ -60,32 +57,33 @@ export default function MemberProfilePage() {
     transactionInvolvesUser(member.user_id, t)
   );
 
-  const expensesByCategory = useMemo(() => {
+  // Plain computations: hooks after the early return above broke the rules of hooks.
+  const expensesByCategory = (() => {
     const expenses = memberTransactions.filter((t) => t.type === 'expense');
     const categoryMap: Record<string, number> = {};
 
     expenses.forEach((exp) => {
       const category = exp.category || 'Other';
-      categoryMap[category] = (categoryMap[category] || 0) + Number(exp.amount);
+      categoryMap[category] = (categoryMap[category] || 0) + toPaise(exp.amount);
     });
 
-    return Object.entries(categoryMap).map(([name, value]) => ({ name, value }));
-  }, [memberTransactions]);
+    return Object.entries(categoryMap).map(([name, value]) => ({ name, value: value / 100 }));
+  })();
 
-  const moneyReceivedVsSpent = useMemo(() => {
+  const moneyReceivedVsSpent = (() => {
     const received = memberTransactions
       .filter((t) => t.type === 'money_sent' && t.to_user_id === member.user_id)
-      .reduce((sum, t) => sum + Number(t.amount), 0);
+      .reduce((sum, t) => sum + toPaise(t.amount), 0) / 100;
 
     const spent = memberTransactions
       .filter((t) => t.type === 'expense' && t.from_user_id === member.user_id)
-      .reduce((sum, t) => sum + Number(t.amount), 0);
+      .reduce((sum, t) => sum + toPaise(t.amount), 0) / 100;
 
     return [
       { name: 'Money Received', value: received },
       { name: 'Expenses Logged', value: spent },
     ];
-  }, [memberTransactions, member.user_id]);
+  })();
 
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>

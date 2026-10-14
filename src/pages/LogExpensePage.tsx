@@ -26,6 +26,7 @@ import {
   MoreHoriz,
 } from '@mui/icons-material';
 import { useFamily } from '../contexts/FamilyContext';
+import { parseAmount, localISODate } from '../lib/money';
 
 const CATEGORIES = [
   { value: 'Food', label: 'Food', icon: <Restaurant /> },
@@ -44,7 +45,7 @@ export default function LogExpensePage() {
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('Food');
   const [description, setDescription] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(localISODate());
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -57,9 +58,9 @@ export default function LogExpensePage() {
       return;
     }
 
-    const amountNum = parseFloat(amount);
-    if (isNaN(amountNum) || amountNum <= 0) {
-      setError('Please enter a valid amount');
+    const amountNum = parseAmount(amount);
+    if (amountNum === null) {
+      setError('Please enter a valid amount (more than 0, at most 2 decimals)');
       return;
     }
 
@@ -173,6 +174,7 @@ export default function LogExpensePage() {
               margin="normal"
               required
               InputLabelProps={{ shrink: true }}
+              inputProps={{ max: localISODate() }}
             />
 
             <Button

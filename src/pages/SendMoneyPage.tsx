@@ -15,6 +15,7 @@ import {
 } from '@mui/material';
 import { ArrowBack } from '@mui/icons-material';
 import { useFamily } from '../contexts/FamilyContext';
+import { parseAmount } from '../lib/money';
 
 export default function SendMoneyPage() {
   const navigate = useNavigate();
@@ -36,9 +37,9 @@ export default function SendMoneyPage() {
       return;
     }
 
-    const amountNum = parseFloat(amount);
-    if (isNaN(amountNum) || amountNum <= 0) {
-      setError('Please enter a valid amount');
+    const amountNum = parseAmount(amount);
+    if (amountNum === null) {
+      setError('Please enter a valid amount (more than 0, at most 2 decimals)');
       return;
     }
 
@@ -80,6 +81,12 @@ export default function SendMoneyPage() {
           {error && (
             <Alert severity="error" sx={{ mb: 2 }}>
               {error}
+            </Alert>
+          )}
+
+          {otherMembers.length === 0 && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              No one else has joined yet. Share your family code from Settings so others can join.
             </Alert>
           )}
 

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import {
   Container,
   Box,
@@ -10,12 +10,13 @@ import {
   ToggleButtonGroup,
   ToggleButton,
   Alert,
+  CircularProgress,
 } from '@mui/material';
 import { useFamily } from '../contexts/FamilyContext';
 
 export default function SetupPage() {
   const navigate = useNavigate();
-  const { createFamily, joinFamily } = useFamily();
+  const { family, loading: familyLoading, createFamily, joinFamily } = useFamily();
   const [mode, setMode] = useState<'create' | 'join'>('create');
   const [familyName, setFamilyName] = useState('');
   const [familyCode, setFamilyCode] = useState('');
@@ -24,6 +25,16 @@ export default function SetupPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [createdCode, setCreatedCode] = useState('');
+
+  // Already in a family (e.g. typed /setup): creating a second one used to lock the account out.
+  if (familyLoading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+  if (family && !createdCode && !loading) return <Navigate to="/dashboard" replace />;
 
   const handleCreateFamily = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -143,7 +154,7 @@ export default function SetupPage() {
               <TextField
                 fullWidth
                 label="Family Code"
-                placeholder="FAM-XXXX"
+                placeholder="FAM-XXXX-XXXX"
                 value={familyCode}
                 onChange={(e) => setFamilyCode(e.target.value.toUpperCase())}
                 margin="normal"

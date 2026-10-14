@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import {
   Container,
   Box,
@@ -28,10 +28,7 @@ export default function DashboardPage() {
   const { family, members, transactions, getBalanceForMember, notifications } = useFamily();
   const { signOut } = useAuth();
 
-  if (!family) {
-    navigate('/setup');
-    return null;
-  }
+  if (!family) return <Navigate to="/setup" replace />;
 
   const totalPool = members.reduce((sum, member) => sum + getBalanceForMember(member.id), 0);
 

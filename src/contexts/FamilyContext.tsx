@@ -8,6 +8,7 @@ import React, {
 } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './AuthContext';
+import { formatINR, localISODate, toPaise } from '../lib/money';
 
 export interface Family {
   id: string;
@@ -77,10 +78,11 @@ interface FamilyContextType {
 
 const FamilyContext = createContext<FamilyContextType | undefined>(undefined);
 
+// Summed in integer paise so balances are exact to the paisa.
 function computeNetBalance(userId: string, txs: Transaction[]): number {
   let net = 0;
   for (const t of txs) {
-    const amt = Number(t.amount);
+    const amt = toPaise(t.amount);
     if (t.type === 'money_sent') {
       if (t.to_user_id === userId) net += amt;
       if (t.from_user_id === userId) net -= amt;
@@ -91,7 +93,16 @@ function computeNetBalance(userId: string, txs: Transaction[]): number {
       if (t.from_user_id === userId) net -= amt;
     }
   }
-  return net;
+  return net / 100;
+}
+
+// 31 unambiguous characters, 8 of them: ~8.5e11 codes. The old FAM-1234 codes had only
+// 9000 values, so any signed-in user could brute-force their way into a family.
+const CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
+function generateFamilyCode(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(8));
+  const chars = Array.from(bytes, (b) => CODE_ALPHABET[b % CODE_ALPHABET.length]).join('');
+  return `FAM-${chars.slice(0, 4)}-${chars.slice(4)}`;
 }
 
 export function FamilyProvider({ children }: { children: React.ReactNode }) {
@@ -101,19 +112,23 @@ export function FamilyProvider({ children }: { children: React.ReactNode }) {
   const [currentMember, setCurrentMember] = useState<FamilyMember | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [loading, setLoading] = useState(false);
+  // user id the current state was loaded for; routes wait until it matches the signed-in
+  // user, so refreshing /dashboard no longer redirects to /setup before data arrives.
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
+  const loading = !!user && loadedFor !== user.id;
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   const loadFamily = useCallback(async () => {
     if (!user) return;
 
-    setLoading(true);
     try {
       const { data: memberData, error: memErr } = await supabase
         .from('family_members')
         .select('*')
         .eq('user_id', user.id)
+        .order('joined_at', { ascending: true })
+        .limit(1)
         .maybeSingle();
 
       if (memErr) throw memErr;
@@ -186,7 +201,7 @@ export function FamilyProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       console.error('Error loading family:', error);
     } finally {
-      setLoading(false);
+      setLoadedFor(user.id);
     }
   }, [user]);
 
@@ -199,6 +214,7 @@ export function FamilyProvider({ children }: { children: React.ReactNode }) {
       setCurrentMember(null);
       setTransactions([]);
       setNotifications([]);
+      setLoadedFor(null);
     }
   }, [user, loadFamily]);
 
@@ -255,19 +271,24 @@ export function FamilyProvider({ children }: { children: React.ReactNode }) {
   const createFamily = async (name: string): Promise<string> => {
     if (!user) throw new Error('User not authenticated');
 
-    const familyCode = `FAM-${Math.floor(1000 + Math.random() * 9000)}`;
-
-    const { data: familyData, error: familyError } = await supabase
-      .from('families')
-      .insert({
-        name,
-        family_code: familyCode,
-        created_by: user.id,
-      })
-      .select()
-      .single();
-
-    if (familyError) throw familyError;
+    let familyCode = '';
+    let familyData: Family | null = null;
+    // Retry on the (very unlikely) unique-code collision.
+    for (let attempt = 0; attempt < 3 && !familyData; attempt++) {
+      familyCode = generateFamilyCode();
+      const { data, error: familyError } = await supabase
+        .from('families')
+        .insert({
+          name: name.trim(),
+          family_code: familyCode,
+          created_by: user.id,
+        })
+        .select()
+        .single();
+      if (familyError && familyError.code !== '23505') throw familyError;
+      familyData = data;
+    }
+    if (!familyData) throw new Error('Could not create a family code, please try again');
 
     const { error: memberError } = await supabase.from('family_members').insert({
       family_id: familyData.id,
@@ -275,7 +296,10 @@ export function FamilyProvider({ children }: { children: React.ReactNode }) {
       role: 'parent',
     });
 
-    if (memberError) throw memberError;
+    if (memberError) {
+      await supabase.from('families').delete().eq('id', familyData.id);
+      throw memberError;
+    }
 
     await loadFamily();
     return familyCode;
@@ -284,27 +308,43 @@ export function FamilyProvider({ children }: { children: React.ReactNode }) {
   const joinFamily = async (familyCode: string, name: string, role: string) => {
     if (!user) throw new Error('User not authenticated');
 
-    const { data: familyRows, error: familyError } = await supabase.rpc(
-      'lookup_family_by_code',
-      { p_code: familyCode.trim() }
-    );
+    const code = familyCode.trim().toUpperCase();
+    const safeRole = role === 'parent' || role === 'child' ? role : 'member';
 
-    if (familyError) throw familyError;
-    const familyData = Array.isArray(familyRows) ? familyRows[0] : familyRows;
-    if (!familyData) throw new Error('Family not found');
-
-    await supabase.from('profiles').upsert(
-      { id: user.id, display_name: name },
-      { onConflict: 'id' }
-    );
-
-    const { error: memberError } = await supabase.from('family_members').insert({
-      family_id: familyData.id,
-      user_id: user.id,
-      role: role === 'parent' || role === 'child' ? role : 'member',
+    // Server-side join (migration 20261014000000) checks the code inside the database.
+    const { error: joinError } = await supabase.rpc('join_family_by_code', {
+      p_code: code,
+      p_role: safeRole,
+      p_display_name: name.trim(),
     });
+    if (joinError?.code === 'P0002') throw new Error('Family not found');
+    if (joinError?.code === '23505') throw new Error('You already belong to a family');
+    if (joinError && joinError.code !== 'PGRST202') throw joinError;
 
-    if (memberError) throw memberError;
+    if (joinError) {
+      // Older database without the join function: fall back to the previous flow.
+      const { data: familyRows, error: familyError } = await supabase.rpc(
+        'lookup_family_by_code',
+        { p_code: code }
+      );
+
+      if (familyError) throw familyError;
+      const familyData = Array.isArray(familyRows) ? familyRows[0] : familyRows;
+      if (!familyData) throw new Error('Family not found');
+
+      await supabase.from('profiles').upsert(
+        { id: user.id, display_name: name.trim() },
+        { onConflict: 'id' }
+      );
+
+      const { error: memberError } = await supabase.from('family_members').insert({
+        family_id: familyData.id,
+        user_id: user.id,
+        role: safeRole,
+      });
+
+      if (memberError) throw memberError;
+    }
 
     await loadFamily();
   };
@@ -322,7 +362,7 @@ export function FamilyProvider({ children }: { children: React.ReactNode }) {
       amount,
       type: 'money_sent',
       note: note || null,
-      date: new Date().toISOString().split('T')[0],
+      date: localISODate(),
     });
 
     if (transactionError) throw transactionError;
@@ -331,7 +371,7 @@ export function FamilyProvider({ children }: { children: React.ReactNode }) {
       family_id: family.id,
       user_id: toMember.user_id,
       type: 'money_received',
-      message: `${currentMember.name} sent you ₹${amount}${note ? ` — ${note}` : ''}`,
+      message: `${currentMember.name} sent you ${formatINR(amount)}${note ? ` — ${note}` : ''}`,
       is_read: false,
     });
 
@@ -367,7 +407,7 @@ export function FamilyProvider({ children }: { children: React.ReactNode }) {
       family_id: family.id,
       user_id: member.user_id,
       type: 'expense_logged',
-      message: `Expense logged: ₹${amount} — ${category}${description ? ` (${description})` : ''}`,
+      message: `Expense logged: ${formatINR(amount)} — ${category}${description ? ` (${description})` : ''}`,
       is_read: member.user_id === currentMember.user_id,
     });
 
@@ -387,7 +427,7 @@ export function FamilyProvider({ children }: { children: React.ReactNode }) {
       to_user_id: toMember.user_id,
       amount,
       type: 'settlement',
-      date: new Date().toISOString().split('T')[0],
+      date: localISODate(),
     });
 
     if (error) throw error;
@@ -396,7 +436,7 @@ export function FamilyProvider({ children }: { children: React.ReactNode }) {
       family_id: family.id,
       user_id: toMember.user_id,
       type: 'settlement',
-      message: `${fromMember.name} settled ₹${amount} with you`,
+      message: `${fromMember.name} settled ${formatINR(amount)} with you`,
       is_read: false,
     });
 
@@ -426,7 +466,8 @@ export function FamilyProvider({ children }: { children: React.ReactNode }) {
   const leaveFamily = async () => {
     if (!currentMember) throw new Error('No member');
 
-    await supabase.from('family_members').delete().eq('id', currentMember.id);
+    const { error } = await supabase.from('family_members').delete().eq('id', currentMember.id);
+    if (error) throw error;
 
     setFamily(null);
     setMembers([]);
@@ -461,6 +502,7 @@ export function FamilyProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- provider + hook pair
 export function useFamily() {
   const context = useContext(FamilyContext);
   if (context === undefined) {
